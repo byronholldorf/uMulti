@@ -15,7 +15,58 @@ struct _uMulti_Process {
 
 volatile _uMulti_Process _uMulti_processes[UMULTI_MAX_PROCESSES];
 
-void debugStacks() {
+
+////////////////// TIMER OPERATIONS ////////////////////
+#ifdef UMULTI_USE_TIMER
+
+struct _uMulti_Timer {
+	void (*op)();
+	uint32_t milliTarget;
+};
+
+_uMulti_Timer _uMulti_timer_slots[UMULTI_TIMER_SLOTS];
+
+
+uint8_t _uMulti_timerShouldExecute(_uMulti_Timer& t) {
+	uint32_t time = millis();
+	return t.milliTarget != 0 && (t.milliTarget - time > 4294967296L - 60000L);
+}
+
+
+uint8_t _uMulti_findEmptyTimerSlot() {
+	while(true) {
+		for(uint8_t i=0; i<UMULTI_TIMER_SLOTS; i++) {
+			if(_uMulti_timer_slots[i].milliTarget == 0) {
+				return i;
+			}
+		}
+		uMulti_delay_ms(1);
+	}
+}
+
+
+void uMulti_check_timer() {
+	for(uint8_t i=0; i<UMULTI_TIMER_SLOTS; i++) {
+		if(_uMulti_timerShouldExecute(_uMulti_timer_slots[i])) {
+			_uMulti_timer_slots[i].milliTarget = 0;
+			_uMulti_timer_slots[i].op();
+		}
+	}
+}
+
+void uMulti_schedule_timer(long timeMs, void (*op)()) {
+	uint8_t slot = _uMulti_findEmptyTimerSlot();
+
+	_uMulti_timer_slots[slot].milliTarget = millis() + timeMs;
+	_uMulti_timer_slots[slot].op = op;
+}
+
+#endif
+
+////////////////// DEBUG OPERATIONS ////////////////////
+#ifdef UMULTI_DEBUG
+void uMulti_print_stacks() {
+	Serial.print(F("*UMULTI:"));
 	for(int i=0; i<5; i++) {
 		Serial.print(_uMulti_processes[i].stack);
 		Serial.print("/");
@@ -26,18 +77,21 @@ void debugStacks() {
 	Serial.flush();
 }
 
-
 void debug(const char* text, uint16_t num) {
+	Serial.print(F("*UMULTI:"));
 	Serial.print(text);
 	Serial.println(num);
 	Serial.flush();
 }
 
 void debug(const char* text) {
-//	Serial.print(text);
-//	Serial.flush();
+	Serial.print(F("*UMULTI:"));
+	Serial.print(text);
+	Serial.flush();
 }
+#endif
 
+////////////////////////////////////////////////////////
 
 uint8_t _uMulti_nextProcess(uint8_t current) {
 	uint8_t newProcess = (current + 1);
@@ -50,11 +104,11 @@ uint8_t _uMulti_nextProcess(uint8_t current) {
 
 
 void _uMulti_compressMem(uint8_t proc) {
-	debug("A1");
+	uMulti_debug("A1");
 	uint8_t cur = proc + 1;
 	uint16_t numBytes = _uMulti_processes[proc].stack_end
 			- _uMulti_processes[proc - 1].stack_end;
-	debug("A2");
+	uMulti_debug("A2");
 	while(cur < UMULTI_MAX_PROCESSES && _uMulti_processes[cur].stack_end != 0) {
 		memcpy(
 			(byte*)(_uMulti_processes[cur].stack - numBytes),
@@ -66,7 +120,7 @@ void _uMulti_compressMem(uint8_t proc) {
 		cur++;
 	}
 	_uMulti_processes[cur - 1].stack_end = 0;
-	debug("AE");
+	uMulti_debug("AE");
 
 }
 
@@ -89,29 +143,29 @@ void _uMulti_switch(uint8_t oldProc, uint8_t newProc){
 		"push r17\n"
 		"push r28\n"
 		"push r29");
-	debug("B1");
+	uMulti_debug("B1");
 
 	if(_uMulti_currentProcess == UMULTI_TERM_THREAD_MARKER) {
 		// run on stack 0. It's the only one we know we won't move
 		ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
 			SP = _uMulti_processes[0].stack;
 		}
-		debug("B2");
+		uMulti_debug("B2");
 		_uMulti_compressMem(oldProc);
-		debug("B3");
+		uMulti_debug("B3");
 	} else {
-		debug("B4");
+		uMulti_debug("B4");
 		_uMulti_processes[oldProc].stack = SP;
-		debug("B5");
+		uMulti_debug("B5");
 		ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
 			SP = _uMulti_processes[newProc].stack;
 		}
 
-		debug("B6");
+		uMulti_debug("B6");
 	}
 
 	_uMulti_currentProcess = newProc;
-	debug("BE");
+	uMulti_debug("BE");
 
 	 asm("pop 29\n"
 		 "pop r28\n"
@@ -136,9 +190,9 @@ void _uMulti_switch(uint8_t oldProc, uint8_t newProc){
 
 void uMulti_yield() {
 	uint8_t newProcess = _uMulti_nextProcess(_uMulti_currentProcess);
-	debug("D1");
+	uMulti_debug("D1");
 	_uMulti_switch(_uMulti_currentProcess, newProcess);
-	debug("DE");
+	uMulti_debug("DE");
 }
 
 void uMulti_delay_sec(uint32_t sec) {
@@ -151,19 +205,19 @@ void uMulti_delay_sec(uint32_t sec) {
 
 void uMulti_delay_ms(uint16_t delayMs) {
 	uint32_t offset = millis();
-	debug("C1");
+	uMulti_debug("C1");
 
 	while(millis() - offset < delayMs) {
-		debug("C2");
+		uMulti_debug("C2");
 		uMulti_yield();
-		debug("C3");
+		uMulti_debug("C3");
 	}
-	debug("CE");
+	uMulti_debug("CE");
 }
 
 void uMulti_schedule(void (*func)(), uint16_t stackSize) {
 	volatile uint8_t proc;
-	debug("S1");
+	uMulti_debug("S1");
 	while(_uMulti_processes[UMULTI_MAX_PROCESSES - 1].stack_end != 0) {
 		uMulti_yield();
 	}
@@ -177,30 +231,30 @@ void uMulti_schedule(void (*func)(), uint16_t stackSize) {
 
 	// cheap trick. store the stack, then return, but we'll immediately switch to a different stack and reuse this
 	// one later
-	debug("S2");
+	uMulti_debug("S2");
 	_uMulti_switch(_uMulti_currentProcess, _uMulti_currentProcess);
-	debug("S3");
+	uMulti_debug("S3");
 	if(_uMulti_processes[proc].stack_end == 0) {
 		ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
 			SP = stack;
 		}
-		debug("S4");
+		uMulti_debug("S4");
 		_uMulti_processes[proc].stack_end = stack;
 
 		// save new stack but return with old. This call will actually return above, on the original stack.
 		// a later switch will drop us back here
 		_uMulti_switch(proc, _uMulti_currentProcess);
-		debug("S5");
+		uMulti_debug("S5");
 		func();
-		debug("S6");
+		uMulti_debug("S6");
 
 		uint8_t terminateProcess = _uMulti_currentProcess;
 		_uMulti_currentProcess = UMULTI_TERM_THREAD_MARKER;
-		debug("S7");
+		uMulti_debug("S7");
 		_uMulti_switch(terminateProcess, 0);
 		// never returns
 	}
-	debug("SE");
+	uMulti_debug("SE");
 }
 
 void uMulti_init() {
