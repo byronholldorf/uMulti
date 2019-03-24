@@ -32,13 +32,18 @@ void other() {
 void prep() {
 	while(true) {
 		Serial.println("Launch rocket");
-		uMulti_schedule(rocket,110);
+		uMulti_schedule(rocket);
 		uMulti_delay_ms(150);
-		uMulti_schedule(other,125);
+		uMulti_schedule(other);
 	}
 }
 
-
+void test() {
+	while(true) {
+		Serial.println("A");
+		uMulti_yield();
+	}
+}
 
 void setup()
 {
@@ -51,11 +56,11 @@ void setup()
 
 void loop()
 {
-	Serial.println("x");
-	uMulti_schedule(prep,200);
-	Serial.println(".");
+//	Serial.println("x");
+	uMulti_schedule(test);
+//	Serial.println(".");
 	//uMulti_schedule(blinkPins,120);
-	Serial.println("x");
+//	Serial.println("x");
 //	while(true) {
 //		uMulti_delay_ms(10000);
 //		for(uint8_t i=0;i<100;i++) {
@@ -66,6 +71,9 @@ void loop()
 	while(true) {
 //		Serial.println(".");
 //		delay(100);
-		uMulti_check_timer();
+		//uMulti_check_timer();
+
+		Serial.println("B");
+		uMulti_yield();
 	}
 }

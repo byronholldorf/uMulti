@@ -21,12 +21,13 @@
 #endif
 
 #define UMULTI_TERM_THREAD_MARKER 0xFF
+#define UMULTI_NEW_THREAD_MARKER 0xFE
 
 
 void uMulti_yield();
 void uMulti_delay_ms(uint16_t delayMs);
 void uMulti_delay_sec(uint32_t sec);
-void uMulti_schedule(void (*func)(), uint16_t stackSize);
+void uMulti_schedule(void (*func)());
 void uMulti_init();
 
 #ifdef UMULTI_DEBUG
