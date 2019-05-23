@@ -7,3 +7,4 @@ spec.d
 .settings/
 sloeber.ino.cpp
 .vscode/ipch
+.development
