@@ -40,6 +40,7 @@ uint8_t _uMulti_findEmptyTimerSlot() {
 				return i;
 			}
 		}
+		uMulti_check_timer();
 		uMulti_delay_ms(1);
 	}
 }
@@ -52,7 +53,6 @@ void uMulti_check_timer() {
 			_uMulti_timer_slots[i].op();
 		}
 	}
-	uMulti_yield();
 }
 
 void uMulti_schedule_timer(long timeMs, void (*op)()) {
@@ -104,10 +104,10 @@ uint8_t _uMulti_nextProcess(uint8_t current) {
 }
 
 __attribute__((always_inline))
-inline void _uMulti_rollLeft(uint8_t current) {
-	STACK startCopy = max(_uMulti_processes[current + 1].stack_start, _UMULTI_STACK_END);
-	STACK endCopy = startCopy + (_uMulti_processes[current].stack_start - SP);
-	_uMulti_processes[current].stack_start = endCopy;
+inline void _uMulti_rollLeft() {
+	STACK startCopy = max(_uMulti_processes[_uMulti_currentProcess + 1].stack_start, _UMULTI_STACK_END);
+	STACK endCopy = startCopy + (_uMulti_processes[_uMulti_currentProcess].stack_start - SP);
+	_uMulti_processes[_uMulti_currentProcess].stack_start = endCopy;
 
 	// move chunk of stack to [startCopy:endCopy] (to the left)
 	asm volatile(
@@ -124,9 +124,9 @@ inline void _uMulti_rollLeft(uint8_t current) {
 }
 
 __attribute__((always_inline))
-inline void _uMulti_rollRight(uint8_t current) {
-	STACK startCopy = _uMulti_processes[current + 1].stack_start;
-	_uMulti_processes[current + 1].stack_start = SP;
+inline void _uMulti_rollRight() {
+	STACK startCopy = _uMulti_processes[_uMulti_currentProcess + 1].stack_start;
+	_uMulti_processes[_uMulti_currentProcess + 1].stack_start = SP;
 	STACK endCopy;
 	if(_uMulti_currentProcess == UMULTI_MAX_PROCESSES - 2 || _uMulti_processes[_uMulti_currentProcess + 2].stack_start == 0) {
 		endCopy = _UMULTI_STACK_END;
@@ -182,13 +182,13 @@ void _uMulti_switch() {
 		_uMulti_schedDirection = -_uMulti_schedDirection;
 	} else {
 		if(_uMulti_schedDirection == -1) {
-			_uMulti_rollLeft(_uMulti_currentProcess);
+			_uMulti_rollLeft();
 		} else {
-			_uMulti_rollRight(_uMulti_currentProcess);
+			_uMulti_rollRight();
 		}
 	}
 
-	asm(
+	asm volatile (
 			"pop r29;" "\n"
 			"pop r28;" "\n"
 			"pop r17;" "\n"
@@ -240,6 +240,8 @@ void uMulti_delay_ms(uint16_t delayMs) {
 	uMulti_debug("CE");
 }
 
+__attribute__ ((noinline))
+__attribute__ ((naked))
 void _uMulti_terminate() {
 	for(int proc = _uMulti_currentProcess; proc < UMULTI_MAX_PROCESSES - 1; proc++) {
 		_uMulti_processes[proc].stack_start = _uMulti_processes[proc + 1].stack_start;
@@ -248,6 +250,27 @@ void _uMulti_terminate() {
 
 	// current stack and our right neighbor should be at the same spot.
 	_uMulti_currentProcess--;
+
+	asm volatile (
+				"pop r29;" "\n"
+				"pop r28;" "\n"
+				"pop r17;" "\n"
+				"pop r16;" "\n"
+				"pop r15;" "\n"
+				"pop r14;" "\n"
+				"pop r13;" "\n"
+				"pop r12;" "\n"
+				"pop r11;" "\n"
+				"pop r10;" "\n"
+				"pop r9;" "\n"
+				"pop r8;" "\n"
+				"pop r7;" "\n"
+				"pop r6;" "\n"
+				"pop r5;" "\n"
+				"pop r4;" "\n"
+				"pop r3;" "\n"
+				"pop r2;" "\n"
+				"ret;" "\n");
 }
 
 
@@ -259,9 +282,10 @@ void uMulti_schedule(void (*func)()) {
 	}
 
 	// rotate the stack to the last so we can write the next process.
-	_uMulti_schedDirection = 1;
+	uint8_t rollcount = 1;
 	while(!_UMULTI_IS_LAST(_uMulti_currentProcess)) {
-		_uMulti_rollRight(_uMulti_currentProcess);
+		_uMulti_rollRight();
+		rollcount++;
 	}
 
 	_uMulti_currentProcess++;
@@ -299,7 +323,9 @@ void uMulti_schedule(void (*func)()) {
 			"push r28;" "\n"
 			"push r29;" "\n");
 
-	_uMulti_rollLeft(_uMulti_currentProcess);
+	while(rollcount--) {
+		_uMulti_rollLeft();
+	}
 }
 
 void uMulti_init() {
