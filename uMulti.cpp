@@ -1,16 +1,16 @@
 #include "uMulti.h"
 
 volatile uint8_t _uMulti_currentProcess; // = 0
-volatile int8_t _uMulti_schedDirection = 1;
+volatile int8_t _uMulti_schedDirection; // = 0
 
-typedef uint16_t STACK;
-#define _UMULTI_STACK_END ((uint16_t)__malloc_heap_start)
+extern byte *__bss_end;
+
+typedef byte* STACK;
+#define _UMULTI_STACK_END (__bss_end)
 #define _UMULTI_IS_LAST(a) ((a) == UMULTI_MAX_PROCESSES - 1 || !_uMulti_processes[(a) + 1].stack_start)
 
 struct _uMulti_Process {
-	union {
-		STACK stack_start;
-	};
+	STACK stack_start;
 };
 
 volatile _uMulti_Process _uMulti_processes[UMULTI_MAX_PROCESSES];
@@ -64,36 +64,6 @@ void uMulti_schedule_timer(long timeMs, void (*op)()) {
 
 #endif
 
-////////////////// DEBUG OPERATIONS ////////////////////
-#ifdef UMULTI_DEBUG
-void uMulti_print_stacks() {
-	Serial.print(F("*UMULTI:"));
-	for(int i=0; i<5; i++) {
-		Serial.print(_uMulti_processes[i].stack);
-		Serial.print("/");
-		Serial.print(_uMulti_processes[i].stack_end);
-		Serial.print("   ");
-	}
-	Serial.println(" ");
-	Serial.flush();
-}
-
-void debug(const char* text, uint16_t num) {
-	Serial.print(F("*UMULTI:"));
-	Serial.print(text);
-	Serial.println(num);
-	Serial.flush();
-}
-
-void debug(const char* text) {
-	Serial.print(F("*UMULTI:"));
-	Serial.print(text);
-	Serial.flush();
-}
-#endif
-
-////////////////////////////////////////////////////////
-
 uint8_t _uMulti_nextProcess(uint8_t current) {
 	uint8_t newProcess = (current + 1);
 	if(_uMulti_processes[newProcess].stack_start == 0 || newProcess >= UMULTI_MAX_PROCESSES) {
@@ -103,10 +73,11 @@ uint8_t _uMulti_nextProcess(uint8_t current) {
 	return newProcess;
 }
 
+// called during context switch. We can't use the stack and must be inlined.
 __attribute__((always_inline))
 inline void _uMulti_rollLeft() {
 	STACK startCopy = max(_uMulti_processes[_uMulti_currentProcess + 1].stack_start, _UMULTI_STACK_END);
-	STACK endCopy = startCopy + (_uMulti_processes[_uMulti_currentProcess].stack_start - SP);
+	STACK endCopy = startCopy + (_uMulti_processes[_uMulti_currentProcess].stack_start - (byte*)SP);
 	_uMulti_processes[_uMulti_currentProcess].stack_start = endCopy;
 
 	// move chunk of stack to [startCopy:endCopy] (to the left)
@@ -123,10 +94,11 @@ inline void _uMulti_rollLeft() {
 
 }
 
+// called during context switch. We can't use the stack and must be inlined.
 __attribute__((always_inline))
 inline void _uMulti_rollRight() {
 	STACK startCopy = _uMulti_processes[_uMulti_currentProcess + 1].stack_start;
-	_uMulti_processes[_uMulti_currentProcess + 1].stack_start = SP;
+	_uMulti_processes[_uMulti_currentProcess + 1].stack_start = (byte*)SP;
 	STACK endCopy;
 	if(_uMulti_currentProcess == UMULTI_MAX_PROCESSES - 2 || _uMulti_processes[_uMulti_currentProcess + 2].stack_start == 0) {
 		endCopy = _UMULTI_STACK_END;
@@ -177,11 +149,11 @@ void _uMulti_switch() {
 			"push r28;" "\n"
 			"push r29;" "\n");
 
-	if((_uMulti_currentProcess == 0 && _uMulti_schedDirection == -1) ||
-			(_UMULTI_IS_LAST(_uMulti_currentProcess) && _uMulti_schedDirection == 1)) {
-		_uMulti_schedDirection = -_uMulti_schedDirection;
+	if((_uMulti_currentProcess == 0 && _uMulti_schedDirection) ||
+			(_UMULTI_IS_LAST(_uMulti_currentProcess) && !_uMulti_schedDirection)) {
+		_uMulti_schedDirection = ~_uMulti_schedDirection;
 	} else {
-		if(_uMulti_schedDirection == -1) {
+		if(_uMulti_schedDirection) {
 			_uMulti_rollLeft();
 		} else {
 			_uMulti_rollRight();
@@ -214,10 +186,7 @@ void _uMulti_switch() {
 
 
 void uMulti_yield() {
-	//uint8_t newProcess = _uMulti_nextProcess(_uMulti_currentProcess);
-	uMulti_debug("D1");
-	_uMulti_switch(); //_uMulti_switch(_uMulti_currentProcess, newProcess);
-	uMulti_debug("DE");
+	_uMulti_switch();
 }
 
 void uMulti_delay_sec(uint32_t sec) {
@@ -230,20 +199,16 @@ void uMulti_delay_sec(uint32_t sec) {
 
 void uMulti_delay_ms(uint16_t delayMs) {
 	uint32_t offset = millis();
-	uMulti_debug("C1");
 
 	while(millis() - offset < delayMs) {
-		uMulti_debug("C2");
 		uMulti_yield();
-		uMulti_debug("C3");
 	}
-	uMulti_debug("CE");
 }
 
 __attribute__ ((noinline))
 __attribute__ ((naked))
 void _uMulti_terminate() {
-	for(int proc = _uMulti_currentProcess; proc < UMULTI_MAX_PROCESSES - 1; proc++) {
+	for(uint8_t proc = _uMulti_currentProcess; proc < UMULTI_MAX_PROCESSES - 1; proc++) {
 		_uMulti_processes[proc].stack_start = _uMulti_processes[proc + 1].stack_start;
 	}
 	_uMulti_processes[UMULTI_MAX_PROCESSES - 1].stack_start = 0;
@@ -276,7 +241,6 @@ void _uMulti_terminate() {
 
 void uMulti_schedule(void (*func)()) {
 
-	uMulti_debug("S1");
 	while(_uMulti_processes[UMULTI_MAX_PROCESSES - 1].stack_start != 0) {
 		uMulti_yield();
 	}
@@ -289,7 +253,7 @@ void uMulti_schedule(void (*func)()) {
 	}
 
 	_uMulti_currentProcess++;
-	_uMulti_processes[_uMulti_currentProcess].stack_start = SP;
+	_uMulti_processes[_uMulti_currentProcess].stack_start = (byte*)SP;
 
 	void (*returnSP)() = &_uMulti_terminate;
 
@@ -330,10 +294,10 @@ void uMulti_schedule(void (*func)()) {
 
 void uMulti_init() {
 
-	_uMulti_processes[0].stack_start = SP;
+	_uMulti_processes[0].stack_start = (byte*)SP;
 
 #ifdef DEBUG_STACK
-	memset((uint16_t)__malloc_heap_start), 0xCC, SP - ((uint16_t)__malloc_heap_start));
+	memset((uint16_t)__malloc_heap_start), 0xCC, (byte*)SP - ((uint16_t)__malloc_heap_start));
 #endif
 
 }
