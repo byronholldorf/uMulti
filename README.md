@@ -111,8 +111,8 @@ void flashFast() {
 }
 
 void loop() {
-    schedule(flashSlow);
-    schedule(flashFast);
+    uMulti_schedule(flashSlow);
+    uMulti_schedule(flashFast);
     while(true) {
         // 3 bloops
         for(int i=0;i<3;i++) {
