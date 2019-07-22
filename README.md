@@ -116,9 +116,9 @@ void loop() {
     while(true) {
         // 3 bloops
         for(int i=0;i<3;i++) {
-            digitalWrite(12, HIGH);
+            digitalWrite(13, HIGH);
             uMulti_delay_ms(100);
-            digitalWrite(12, LOW);
+            digitalWrite(13, LOW);
             uMulti_delay_ms(100);
         }
         uMulti_delay_ms(2000);
