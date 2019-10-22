@@ -3,10 +3,10 @@
 volatile uint8_t _uMulti_currentProcess; // = 0
 volatile int8_t _uMulti_schedDirection; // = 0
 
-extern byte *__bss_end;
+extern byte __bss_end;
 
 typedef byte* STACK;
-#define _UMULTI_STACK_END (__bss_end)
+#define _UMULTI_STACK_END (&__bss_end)
 #define _UMULTI_IS_LAST(a) ((a) == UMULTI_MAX_PROCESSES - 1 || !_uMulti_processes[(a) + 1].stack_start)
 
 struct _uMulti_Process {

@@ -5,6 +5,10 @@
 
 A simple "Operating System" designed for AVR microcontrollers. 
 
+## Changelog
+* 0.1.1 - Fix Micro/Leonardo boards. End of .bss section is not calculated correctly causing immediate crashes
+* 0.1.0 - Initial release
+
 
 ## Features
  * Easy to use understand API.
@@ -31,13 +35,15 @@ A simple "Operating System" designed for AVR microcontrollers.
 * pointers to the stack are not supported.
     * Parts of the stack are moved during every context switch. Pointers to stack locations will not work.
 * timings cannot be guaranteed
-    * uMulti_delays should be considered "wait at least n sec/ms". It is up to you to yield in threads in a timely manner. Threads must wait until their turn to execute and hence cannot guarantee any sort of timing. Also the order of thread execution used (A-B-C-D-E-E-D-C-B-A, due to how memory compaction works) will cause some additional jitter.
+    * uMulti_delays should be considered "wait at least n sec/ms". It is up to you to yield in threads in a timely manner. Threads must wait until their turn to execute and hence cannot guarantee any sort of timing. Also the order of thread execution used (A-B-C--C-B-A, due to how memory compaction works) will cause some additional jitter.
 * Possible problems with other libraries, especially ones that use delay().
     * since delay() is implemented as a busy-wait, libraries that use this method will block out all other threads. This is probably acceptable if the library needs to do short, time-sensitive operations.
 * Different GCC versions may break the code
     * There are many presumptions about how GCC will generate code. Although it appears to work on avr-gcc 7.2.0, other versions could break it. _This may or may not be partially or fully fixed in future versions by using asm instead of c++._
 
 ## Usage
+
+Note that the main loop must contain either a uMulti_yield or a uMulti_delay. Otherwise other threads will never have the opportunity to run.
 
 ### Standard usage
 method|usage
